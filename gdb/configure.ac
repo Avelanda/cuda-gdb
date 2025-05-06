@@ -15,6 +15,11 @@ dnl GNU General Public License for more details.
 dnl
 dnl You should have received a copy of the GNU General Public License
 dnl along with this program.  If not, see <http://www.gnu.org/licenses/>.
+dnl
+dnl NVIDIA CUDA Debugger CUDA-GDB
+dnl Copyright (C) 2007-2025 NVIDIA Corporation
+dnl Modified from the original GDB file referenced above by the CUDA-GDB
+dnl team at NVIDIA <cudatools@nvidia.com>.
 
 dnl Process this file with autoconf to produce a configure script.
 
@@ -326,6 +331,28 @@ if test "x$targ_defvec" != x; then
     [Define to BFD's default target vector. ])
 fi
 
+# Enable CUDA
+AC_ARG_ENABLE(cuda,
+AS_HELP_STRING([--disable-cuda], [disable CUDA support (cuda-gdb)]),
+  [case $enableval in
+    yes | no)
+      ;;
+    *)
+      AC_MSG_ERROR([bad value $enableval for --enable-cuda]) ;;
+  esac],
+  [enable_cuda=yes])
+if test x"$enable_cuda" = xyes; then
+  AC_DEFINE(NVIDIA_CUDA_GDB, 1, [Define if building with NVIDIA CUDA support.])
+  AC_DEFINE(NVIDIA_BUGFIX, 1, [Define if building with NVIDIA bugfixes.])
+  LIBCUDACORE="\$(top_builddir)/../libcudacore/libcudacore.a"
+  CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_CUDA_OBS)"
+  CONFIG_DEPS="$CONFIG_DEPS \$(SUBDIR_CUDA_DEPS)"
+  CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_CUDA_SRCS)"
+  ENABLE_CFLAGS="$ENABLE_CFLAGS \$(SUBDIR_CUDA_CFLAGS)"
+fi
+AC_SUBST(LIBCUDACORE)
+AM_CONDITIONAL(ENABLE_CUDA, [test x"$enable_cuda" = xyes])
+
 # Enable TUI.
 AC_ARG_ENABLE(tui,
 AS_HELP_STRING([--enable-tui],
@@ -594,8 +621,20 @@ case $host_os in
     ;;
 esac
 
-# These are the libraries checked by Readline.
-AC_SEARCH_LIBS(tgetent, [termcap tinfow tinfo curses ncursesw ncurses])
+# NVIDIA: We don't want to pull in deps like tinfo if we asked
+# for curses to be disabled.
+if test x"$enable_cuda" = xyes; then
+  if test x"curses_found" = xyes; then
+    # These are the libraries checked by Readline.
+    AC_SEARCH_LIBS(tgetent, [termcap tinfow tinfo curses ncursesw ncurses])
+  else
+    # Default to stub-termcap.
+    ac_cv_search_tgetent="no"
+  fi
+else
+  # These are the libraries checked by Readline.
+  AC_SEARCH_LIBS(tgetent, [termcap tinfow tinfo curses ncursesw ncurses])
+fi
 
 if test "$ac_cv_search_tgetent" = no; then
   CONFIG_OBS="$CONFIG_OBS stub-termcap.o"
@@ -749,6 +788,8 @@ dnl        If we find python in $PATH, use it to fetch configure options,
 dnl        otherwise assume the compiler can find it with no help from us.
 dnl auto - Same as "yes", but if python is missing from the system,
 dnl        fall back to "no".
+dnl dyn  - Same as "yes", but don't explicitly link against libpython.
+dnl        Use a dlopen mechanism instead. Try python3 instead.
 dnl /path/to/python/exec-prefix -
 dnl        Use the python located in this directory.
 dnl        If /path/to/python/exec-prefix/bin/python exists, use it to find
@@ -833,6 +874,15 @@ else
         python_prog=missing
       fi
       ;;
+    dyn)
+      # Assume python3 is being used for dynlib
+      python_prog=python3
+      AC_PATH_PROG(python_prog_path, ${python_prog}, missing)
+      if test "${python_prog_path}" = missing; then
+        AC_MSG_WARN(unable to find python program ${python_prog})
+	python_prog=missing
+      fi
+      ;;
     *)
       # While we can't run python compiled for $host (unless host == build),
       # the user could write a script that provides the needed information,
@@ -857,19 +907,26 @@ else
 	AC_MSG_ERROR(failure running python-config --includes)
       fi
     fi
-    python_libs=`${python_prog} ${srcdir}/python/python-config.py --ldflags`
-    if test $? != 0; then
-      have_python_config=failed
-      if test "${with_python}" != auto; then
-	AC_MSG_ERROR(failure running python-config --ldflags)
+    # Skip tests for dlopen libpython - we don't need to link
+    if test "${with_python}" != dyn; then
+      python_libs=`${python_prog} ${srcdir}/python/python-config.py --ldflags`
+      if test $? != 0; then
+        have_python_config=failed
+        if test "${with_python}" != auto; then
+	  AC_MSG_ERROR(failure running python-config --ldflags)
+        fi
       fi
-    fi
-    python_prefix=`${python_prog} ${srcdir}/python/python-config.py --exec-prefix`
-    if test $? != 0; then
-      have_python_config=failed
-      if test "${with_python}" != auto; then
-	AC_MSG_ERROR(failure running python-config --exec-prefix)
+      python_prefix=`${python_prog} ${srcdir}/python/python-config.py --exec-prefix`
+      if test $? != 0; then
+        have_python_config=failed
+        if test "${with_python}" != auto; then
+	  AC_MSG_ERROR(failure running python-config --exec-prefix)
+	fi
       fi
+    else
+      # do not set for dlopen libpython
+      python_libs=
+      python_prefix=
     fi
   else
     # We do not have a python executable we can use to determine where
@@ -887,7 +944,12 @@ else
   # python in turn.
 
   have_libpython=no
-  if test "${have_python_config}" = yes; then
+  # Bypass checks if we are using dlopen libpython
+  if test "${with_python}" = dyn; then
+    # FIXME: Probably should be doing a AC_CHECK_HEADERS test here...
+    PYTHON_CPPFLAGS=${python_includes}
+    have_libpython=yes
+  elif test "${have_python_config}" = yes; then
     AC_TRY_LIBPYTHON(have_libpython,
                      ${python_includes}, ${python_libs})
   fi
@@ -931,6 +993,16 @@ AC_ARG_WITH(python-libdir,
     fi
   ])
 
+dnl Use --with-python-inc to control cppflags where GDB looks for the Python
+dnl headers.
+dnl
+dnl This follows similar logic to --with-python-libdir.
+AC_ARG_WITH(python-inc,
+  AS_HELP_STRING([--with-python-inc@<:@=DIR@:>@], [CPP search flags for python's includes]),
+  [
+    PYTHON_CPPFLAGS="${with_python_inc}"
+  ],[])
+
 if test "${have_libpython}" != no; then
   AC_DEFINE(HAVE_PYTHON, 1, [Define if Python interpreter is being linked in.])
   CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_PYTHON_OBS)"
@@ -943,6 +1015,13 @@ if test "${have_libpython}" != no; then
     AC_DEFINE_UNQUOTED(WITH_PYTHON_LIBDIR, "${with_python_libdir}",
 		       [Directory containing Python's standard libraries from --with-python-libdir.])
     GDB_AC_DEFINE_RELOCATABLE(PYTHON_LIBDIR, [python lib], ${with_python_libdir})
+  fi
+
+  # Check for added NVIDIA dynlib support
+  if test "${with_python}" = dyn; then
+    AC_DEFINE(NVIDIA_PYTHON_DYNLIB, 1, [Define if building with NVIDIA dlopen python bindings.])
+    CONFIG_OBS="$CONFIG_OBS \$(SUBDIR_PYTHON_DYNLIB_OBS)"
+    CONFIG_SRCS="$CONFIG_SRCS \$(SUBDIR_PYTHON_DYNLIB_SRCS)"
   fi
 
   # Flags needed to compile Python code (taken from python-config --cflags).
@@ -1650,6 +1729,12 @@ if test "${gdb_native}" = yes; then
    fi
    LDFLAGS="$old_LDFLAGS"
 fi
+# CUDA - always force the dynamic_list path for cuda-gdb
+# otherwise we will expose every symbol, including libraries
+# we will statically link against.
+if test x"$enable_cuda" = xyes; then
+  dynamic_list=true
+fi
 if $dynamic_list; then
   found="-Wl,--dynamic-list"
   RDYNAMIC='-Wl,--dynamic-list=$(srcdir)/proc-service.list'
@@ -1784,6 +1869,10 @@ case $host_os in
     gdbinit=.gdbinit
     ;;
 esac
+if test x"$enable_cuda" = xyes; then
+  dnl cuda-gdb always uses it's own init filename
+  gdbinit=.cuda-gdbinit
+fi
 AC_DEFINE_UNQUOTED(GDBINIT,"$gdbinit",[The .gdbinit filename.])
 
 dnl Set the host's .gdbearlyinit filename

@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 #include "arch-utils.h"
 #include "symtab.h"
@@ -974,7 +979,15 @@ allocate_repeat_value (struct type *type, int count)
   struct type *array_type
     = lookup_array_range_type (type, low_bound, count + low_bound - 1);
 
+#ifdef NVIDIA_CUDA_GDB
+  auto val = value::allocate (array_type);
+  /* CUDA - memory segments */
+  auto flags = val->type ()->instance_flags () | type->instance_flags ();
+  val->type ()->set_instance_flags (flags);
+  return val;
+#else
   return value::allocate (array_type);
+#endif
 }
 
 struct value *
@@ -3909,8 +3922,10 @@ value::fetch_lazy_register ()
 	 (e.g. float or int from a double register).  Lazy
 	 register values should have the register's natural type,
 	 so they do not apply.  */
+#ifndef NVIDIA_CUDA_GDB
       gdb_assert (!gdbarch_convert_register_p (get_frame_arch (next_frame),
 					       regnum, type));
+#endif
 
       /* FRAME was obtained, above, via VALUE_NEXT_FRAME_ID.
 	 Since a "->next" operation was performed when setting

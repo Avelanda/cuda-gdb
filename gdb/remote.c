@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 /* See the GDB User Guide for details of the GDB remote protocol.  */
 
 #include "defs.h"
@@ -80,6 +85,13 @@
 #include "async-event.h"
 #include "gdbsupport/selftest.h"
 
+#ifdef NVIDIA_CUDA_GDB
+#include "cuda/cuda-linux-nat-template.h"
+#include "cuda/cuda-linux-nat.h"
+#endif
+#if defined(NVIDIA_CUDA_GDB) && defined(__QNXTARGET__)
+#include "remote-nto.h"
+#endif
 /* The remote target.  */
 
 static const char remote_doc[] = N_("\
@@ -302,6 +314,10 @@ enum {
      packets and the tag violation stop replies.  */
   PACKET_memory_tagging_feature,
 
+#ifdef NVIDIA_CUDA_GDB
+  /* CUDA - version handshake */
+  PACKET_CUDAVersion,
+#endif
   PACKET_MAX
 };
 
@@ -1266,7 +1282,11 @@ static const target_info extended_remote_target_info = {
 /* Set up the extended remote target by extending the standard remote
    target and adding to it.  */
 
+#ifdef NVIDIA_CUDA_GDB
+class extended_remote_target : public remote_target
+#else
 class extended_remote_target final : public remote_target
+#endif
 {
 public:
   const target_info &info () const override
@@ -1331,7 +1351,14 @@ as_remote_target (process_stratum_target *target)
 bool
 is_remote_target (process_stratum_target *target)
 {
+#if defined(NVIDIA_CUDA_GDB) && defined(__QNXTARGET__)
+  /* Allow this to work with qnx target as well */
+  if (as_remote_target (target) != nullptr)
+    return true;
+  return is_qnx_target (target);
+#else
   return as_remote_target (target) != nullptr;
+#endif
 }
 
 /* Per-program-space data key.  */
@@ -5453,6 +5480,54 @@ remote_supported_packet (remote_target *remote,
 
   remote->m_features.m_protocol_packets[feature->packet].support = support;
 }
+#ifdef NVIDIA_CUDA_GDB
+static void
+cuda_remote_version_handshake (remote_target *remote,
+			       const struct protocol_feature *feature,
+			       enum packet_support support,
+			       const char *version_string)
+{
+  uint32_t server_major, server_minor, server_rev;
+
+  gdb_assert (strcmp (feature->name, "CUDAVersion") == 0);
+  if (support != PACKET_ENABLE)
+    error (_ ("Server doesn't support CUDA.\n"));
+
+  gdb_assert (version_string);
+  sscanf (version_string, "%d.%d.%d", &server_major, &server_minor,
+	  &server_rev);
+
+  if (server_major == CUDBG_API_VERSION_MAJOR
+      && server_minor == CUDBG_API_VERSION_MINOR
+      && server_rev == CUDBG_API_VERSION_REVISION)
+    return;
+
+  error (_ ("cuda-gdb version (%d.%d.%d) is not compatible with "
+	    "cuda-gdbserver version (%d.%d.%d).\n"
+	    "Please use the same version of cuda-gdb and cuda-gdbserver."),
+	 CUDBG_API_VERSION_MAJOR, CUDBG_API_VERSION_MINOR,
+	 CUDBG_API_VERSION_REVISION, server_major, server_minor, server_rev);
+}
+#ifdef __QNXTARGET__
+/* QNX specific version check */
+void
+cuda_qnx_version_handshake_check (const char *version_string)
+{
+  struct protocol_feature feature;
+  feature.name = "CUDAVersion";
+  return cuda_remote_version_handshake (NULL, &feature, PACKET_ENABLE,
+					version_string);
+}
+#endif
+/* Signal that we have another remote event to handle.  */
+void
+cuda_remote_report_event ()
+{
+  remote_target *remote = get_current_remote_target ();
+  remote_state *rs = remote->get_remote_state ();
+  mark_async_event_handler (rs->remote_async_inferior_event_token);
+}
+#endif
 
 void
 remote_target::remote_packet_size (const protocol_feature *feature,
@@ -5598,6 +5673,10 @@ static const struct protocol_feature remote_protocol_features[] = {
   { "no-resumed", PACKET_DISABLE, remote_supported_packet, PACKET_no_resumed },
   { "memory-tagging", PACKET_DISABLE, remote_supported_packet,
     PACKET_memory_tagging_feature },
+#if defined(NVIDIA_CUDA_GDB)
+  /* CUDA - version handshake */
+  { "CUDAVersion", PACKET_DISABLE, cuda_remote_version_handshake, PACKET_CUDAVersion },
+#endif
 };
 
 static char *remote_support_xml;
@@ -5943,8 +6022,17 @@ remote_target::open_1 (const char *name, int from_tty, int extended_p)
   reopen_exec_file ();
   reread_symbols (from_tty);
 
+#ifdef NVIDIA_CUDA_GDB
+  /* CUDA - Since we want to preserve the "remote" and "extended-remote" target
+     names, we have to modify the line below to return CUDA-enhanced target
+     classes */
+  remote_target *remote
+      = (extended_p ? (remote_target *)new cuda_nat_linux<extended_remote_target> {}
+		    : (remote_target *)new cuda_nat_linux<remote_target> {});
+#else
   remote_target *remote
     = (extended_p ? new extended_remote_target () : new remote_target ());
+#endif
   target_ops_up target_holder (remote);
 
   remote_state *rs = remote->get_remote_state ();
@@ -8005,9 +8093,29 @@ Packet: '%s'\n"),
 		ULONGEST upid;
 
 		p += sizeof ("process:") - 1;
+#ifdef NVIDIA_CUDA_GDB
+		p = unpack_varlen_hex (p, &upid);
+		pid = upid;
+                if (*p == ';')
+                  p++;
+	      }
+            /* CUDA - Process the return value of cuda_finalize. */
+            if (strncmp (p,
+                         "cuda_finalize:", sizeof ("cuda_finalize") - 1) == 0)
+              {
+                ULONGEST ures;
+                CUDBGResult res;
+                p += sizeof ("cuda_finalize:") - 1;
+                unpack_varlen_hex (p, &ures);
+                res = (CUDBGResult) ures;
+		cuda_debugapi::clear_state ();
+		cuda_debugapi::handle_finalize_api_error (res);
+              }
+#else
 		unpack_varlen_hex (p, &upid);
 		pid = upid;
 	      }
+#endif
 	    else
 	      error (_("unknown stop reply packet: %s"), buf);
 	  }
@@ -10071,7 +10179,13 @@ remote_target::getpkt (gdb::char_vector *buf, bool forever, bool *is_notif)
   else
     timeout = remote_timeout;
 
+#ifdef NVIDIA_CUDA_GDB
+/* CUDA: increase max timeout from 6 to 20 seconds to account for potentially
+ * slow codepathes while single-stepping through CUDA code on older GPUs */
+#define MAX_TRIES 10
+#else
 #define MAX_TRIES 3
+#endif
 
   /* Process any number of notifications, and then return when
      we get a packet.  */
@@ -11789,6 +11903,14 @@ send_remote_packet (gdb::array_view<const char> &buf,
 {
   if (buf.size () == 0 || buf.data ()[0] == '\0')
     error (_("a remote packet must not be empty"));
+#if defined(NVIDIA_CUDA_GDB) && defined(__QNXTARGET__)
+  /* Add QNX support */
+  if (is_qnx_target (current_inferior ()->process_target ()))
+    {
+      send_qnx_packet (buf, callbacks);
+      return;
+    }
+#endif
 
   remote_target *remote = get_current_remote_target ();
   if (remote == nullptr)
@@ -14899,6 +15021,9 @@ remote_target::async (bool enable)
       /* If the core is disabling async, it doesn't want to be
 	 disturbed with target events.  Clear all async event sources
 	 too.  */
+#ifdef NVIDIA_BUGFIX
+      if (rs->remote_async_inferior_event_token)
+#endif
       clear_async_event_handler (rs->remote_async_inferior_event_token);
       if (target_is_non_stop_p ())
 	clear_async_event_handler (rs->notif_state->get_pending_events_token);
@@ -15688,6 +15813,10 @@ Show the maximum size of the address (in bits) in a memory packet."), NULL,
   add_packet_config_cmd (PACKET_memory_tagging_feature,
 			 "memory-tagging-feature", "memory-tagging-feature", 0);
 
+#ifdef NVIDIA_CUDA_GDB
+  add_packet_config_cmd (PACKET_CUDAVersion,
+			 "CUDAVersion packet", "CUDAVersion-packet", 0);
+#endif
   /* Assert that we've registered "set remote foo-packet" commands
      for all packet configs.  */
   {

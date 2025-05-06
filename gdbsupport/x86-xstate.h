@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #ifndef COMMON_X86_XSTATE_H
 #define COMMON_X86_XSTATE_H
 
@@ -100,6 +105,11 @@ constexpr bool operator!= (const x86_xsave_layout &lhs,
 #define X86_XSTATE_SSE_SIZE	576
 #define X86_XSTATE_AVX_SIZE	832
 
+#ifdef NVIDIA_BUGFIX
+// Temporary workaround for newer chips with larger xstate sizes
+#undef X86_XSTATE_MAX_SIZE
+#define X86_XSTATE_MAX_SIZE	(32 * 1024)
+#endif
 
 /* In case one of the MPX XCR0 bits is set we consider we have MPX.  */
 #define HAS_MPX(XCR0) (((XCR0) & X86_XSTATE_MPX) != 0)

@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 #include "symtab.h"
 #include "gdbtypes.h"
@@ -42,6 +47,9 @@
 #include "gdbtypes.h"
 #include "gdbsupport/byte-vector.h"
 #include "typeprint.h"
+#ifdef NVIDIA_CUDA_GDB
+#include "cuda/cuda-tdep.h"
+#endif
 
 /* Local functions.  */
 
@@ -490,9 +498,16 @@ value_cast (struct type *type, struct value *arg2)
 						 range_type->target_type (),
 						 low_bound,
 						 new_length + low_bound - 1);
+#ifdef NVIDIA_CUDA_GDB
+	  auto array_type = create_array_type (alloc, element_type, range_type);
+	  if (type->instance_flags ())
+	      array_type = make_type_with_address_space (type, type->instance_flags ());
+	  arg2->deprecated_set_type (array_type);
+#else
 	  arg2->deprecated_set_type (create_array_type (alloc,
 							element_type, 
 							range_type));
+#endif
 	  return arg2;
 	}
     }
@@ -1038,10 +1053,17 @@ value_at_lazy (struct type *type, CORE_ADDR addr, frame_info_ptr frame)
   return get_value_at (type, addr, frame, 1);
 }
 
+#ifdef NVIDIA_CUDA_GDB
+static void
+read_value_memory_1 (struct value *val, LONGEST bit_offset,
+		     bool stack, CORE_ADDR memaddr,
+		     gdb_byte *buffer, size_t length)
+#else
 void
 read_value_memory (struct value *val, LONGEST bit_offset,
 		   bool stack, CORE_ADDR memaddr,
 		   gdb_byte *buffer, size_t length)
+#endif
 {
   ULONGEST xfered_total = 0;
   struct gdbarch *arch = val->arch ();
@@ -1078,6 +1100,18 @@ read_value_memory (struct value *val, LONGEST bit_offset,
     }
 }
 
+#ifdef NVIDIA_CUDA_GDB
+/* First try to read the memory as CUDA, if that fails
+   fall back to the original implementation of read_value_memory (). */
+void
+read_value_memory (struct value *val, LONGEST bit_offset,
+		   bool stack, CORE_ADDR memaddr,
+		   gdb_byte *buffer, size_t length)
+{
+  if (cuda_read_memory (memaddr, val, val->type (), length))
+    read_value_memory_1 (val, bit_offset, stack, memaddr, buffer, length);
+}
+#endif
 /* Store the contents of FROMVAL into the location of TOVAL.
    Return a new value with the location of TOVAL and contents of FROMVAL.  */
 
@@ -1185,7 +1219,14 @@ value_assign (struct value *toval, struct value *fromval)
 	    dest_buffer = fromval->contents ().data ();
 	  }
 
+#ifdef NVIDIA_CUDA_GDB
+        /* CUDA - memory segments */
+        cuda_write_memory (changed_addr, dest_buffer, type);
+	gdb::observers::memory_changed.notify (current_inferior (),
+					       changed_addr, changed_len, dest_buffer);
+#else
 	write_memory_with_notification (changed_addr, dest_buffer, changed_len);
+#endif
       }
       break;
 
@@ -1390,7 +1431,31 @@ value_of_variable (struct symbol *var, const struct block *b)
   if (symbol_read_needs_frame (var))
     frame = get_selected_frame (_("No frame selected."));
 
+#ifdef NVIDIA_CUDA_GDB
+  auto val = read_var_value (var, b, frame);
+  /* If this is a symbol that has objfile section -1, don't attempt to
+     find its objfile.  It may happen with template arguments.  */
+  if (var->section_index () < 0)
+    return val;
+  /* CUDA - Managed variables */
+  auto objfile = var->objfile ();
+  /* Ensure we have a section */
+  if (var->obj_section (objfile) == NULL)
+    return val;
+  /* Ensure we have a bfd for this section */
+  auto the_bfd_section = var->obj_section (objfile)->the_bfd_section;
+  if (the_bfd_section == NULL)
+    return val;
+  /* If __managed__ variable was declared as type_t var in .cu file,
+   * its host shadow would look like type_t *var,
+   * that is debugger must dereference it before returning value to user */
+  std::string name ("__nv_managed_data__");
+  if (name.compare(0, name.length(), the_bfd_section->name) == 0)
+    return value_ind (val);
+  return val;
+#else
   return read_var_value (var, b, frame);
+#endif
 }
 
 struct value *
@@ -1484,7 +1549,13 @@ value_coerce_to_target (struct value *val)
 
   length = check_typedef (val->type ())->length ();
   addr = allocate_space_in_inferior (length);
+#ifdef NVIDIA_CUDA_GDB
+  /* CUDA - memory segments */
+  struct type *type = check_typedef (val->type ());
+  cuda_write_memory (addr, val->contents ().data (), type);
+#else
   write_memory (addr, val->contents ().data (), length);
+#endif
   return value_at_lazy (val->type (), addr);
 }
 
@@ -2364,11 +2435,34 @@ value_struct_elt (struct value **argp,
 
   if (!args.has_value ())
     {
+#ifdef NVIDIA_CUDA_GDB
+      char *nname;
+      int len;
+      len = strlen(name);
+      if (current_language
+	  && current_language->case_sensitivity () == case_sensitive_off)
+	{
+	  int i;
+	  nname = (char *) xmalloc(len + 1);
+	  for (i = 0; i < len + 1; i++)
+	    {
+	      nname[i] = tolower(name[i]);
+	    }
+	}
+      else
+	{
+	  nname = (char *) xmalloc(len + 1);
+	  memcpy(nname, name, len + 1);
+	}
+      v = search_struct_field (nname, *argp, t, 0);
+      xfree(nname);
+#else
       /* if there are no arguments ...do this...  */
 
       /* Try as a field first, because if we succeed, there is less
 	 work to be done.  */
       v = search_struct_field (name, *argp, t, 0);
+#endif
       if (v)
 	return v;
 

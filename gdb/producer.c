@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 #include "producer.h"
 #include "gdbsupport/selftest.h"
@@ -123,8 +128,13 @@ producer_is_icc (const char *producer, int *major, int *minor)
 bool
 producer_is_llvm (const char *producer)
 {
+#ifdef NVIDIA_BUGFIX
+  /* CUDA - add PGI support */
+  if ((producer != NULL) && startswith (producer, " PG"))
+    return true;
+#endif
   return ((producer != NULL) && (startswith (producer, "clang ")
-				 || startswith (producer, " F90 Flang ")));
+                                 || startswith (producer, " F90 Flang ")));
 }
 
 /* See producer.h.  */

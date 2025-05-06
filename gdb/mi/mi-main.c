@@ -19,6 +19,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 #include "arch-utils.h"
 #include "target.h"
@@ -63,6 +68,9 @@
 #include <algorithm>
 #include <set>
 #include <map>
+#ifdef NVIDIA_CUDA_GDB
+#include "cuda/cuda-tdep.h"
+#endif
 
 enum
   {
@@ -1211,6 +1219,20 @@ mi_cmd_data_evaluate_expression (const char *command, const char *const *argv,
   uiout->field_stream ("value", stb);
 }
 
+#ifdef NVIDIA_CUDA_GDB
+/* CUDA - memory segments*/
+static CORE_ADDR
+mi_parse_and_eval_address (const char *exp, type_instance_flags *segment)
+{
+  expression_up expr = parse_expression (exp);
+  struct value *val = expr->evaluate ();
+  struct type *type = val->type ();
+  if (type->code () == TYPE_CODE_PTR)
+      type = type->target_type ();
+  *segment = TYPE_CUDA_ALL(type);
+  return value_as_address (val);
+}
+#endif
 /* This is the -data-read-memory command.
 
    ADDR: start address of data to be dumped.
@@ -1281,7 +1303,14 @@ mi_cmd_data_read_memory (const char *command, const char *const *argv,
   /* Extract all the arguments. */
 
   /* Start address of the memory dump.  */
+#ifdef NVIDIA_CUDA_GDB
+  type_instance_flags dummy_flags;
+  struct type dummy_type;
+  addr = mi_parse_and_eval_address (argv[0], &dummy_flags) + offset;
+  dummy_type.set_instance_flags (dummy_flags);
+#else
   addr = parse_and_eval_address (argv[0]) + offset;
+#endif
   /* The format character to use when displaying a memory word.  See
      the ``x'' command.  */
   word_format = argv[1][0];
@@ -1330,9 +1359,22 @@ mi_cmd_data_read_memory (const char *command, const char *const *argv,
 
   gdb::byte_vector mbuf (total_bytes);
 
+#ifdef NVIDIA_CUDA_GDB
+  if (TYPE_CUDA_ALL(&dummy_type))
+    {
+      const auto rc = cuda_read_memory (addr, TYPE_CUDA_ALL (&dummy_type),
+					mbuf.data (), total_bytes);
+      nr_bytes = rc ? -1 : total_bytes;
+    }
+  else
+    nr_bytes = target_read (current_inferior ()->top_target (),
+			    TARGET_OBJECT_MEMORY, NULL,
+			    mbuf.data (), addr, total_bytes);
+#else
   nr_bytes = target_read (current_inferior ()->top_target (),
 			  TARGET_OBJECT_MEMORY, NULL,
 			  mbuf.data (), addr, total_bytes);
+#endif
   if (nr_bytes <= 0)
     error (_("Unable to read memory."));
 

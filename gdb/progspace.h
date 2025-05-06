@@ -17,6 +17,10 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
 
 #ifndef PROGSPACE_H
 #define PROGSPACE_H
@@ -236,6 +240,13 @@ struct program_space
   void add_objfile (std::unique_ptr<objfile> &&objfile,
 		    struct objfile *before);
 
+#ifdef NVIDIA_CUDA_GDB
+  /* CUDA: We use id to track the insertion order of objfiles. This
+   * greatly (100x) speeds up the sorting when there is address overlap.
+   * For cuda elf images, we have potentially hundreds of overlapping
+   * objfiles. */
+  void regen_objfile_ids ();
+#endif
   /* Remove OBJFILE from the list of objfiles.  */
   void remove_objfile (struct objfile *objfile);
 

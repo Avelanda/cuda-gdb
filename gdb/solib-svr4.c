@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 
 #include "elf/external.h"
@@ -46,6 +51,10 @@
 #include "probe.h"
 
 #include <map>
+
+#ifdef __QNXTARGET__
+#include "solib-nto.h"
+#endif
 
 static struct link_map_offsets *svr4_fetch_link_map_offsets (void);
 static int svr4_have_link_map_offsets (void);
@@ -214,6 +223,10 @@ lm_info_read (CORE_ADDR lm_addr)
 					       ptr_type);
       lm_info->l_name = extract_typed_address (&lm[lmo->l_name_offset],
 					       ptr_type);
+#ifdef __QNXTARGET__
+      lm_info->l_path = extract_typed_address (&lm[lmo->l_path_offset],
+					       ptr_type);
+#endif
     }
 
   return lm_info;
@@ -227,7 +240,12 @@ has_lm_dynamic_from_link_map (void)
   return lmo->l_ld_offset >= 0;
 }
 
+/* QNX needs this function in a wider scope */
+#ifdef __QNXTARGET__
+CORE_ADDR
+#else
 static CORE_ADDR
+#endif
 lm_addr_check (const struct so_list *so, bfd *abfd)
 {
   lm_info_svr4 *li = (lm_info_svr4 *) so->lm_info;
@@ -1053,6 +1071,7 @@ library_list_start_library (struct gdb_xml_parser *parser,
     = (ULONGEST *) xml_find_attribute (attributes, "l_addr")->value.get ();
   ULONGEST *l_ldp
     = (ULONGEST *) xml_find_attribute (attributes, "l_ld")->value.get ();
+
   struct so_list *new_elem;
 
   new_elem = XCNEW (struct so_list);
@@ -1307,6 +1326,7 @@ svr4_read_so_list (svr4_info *info, CORE_ADDR lm, CORE_ADDR prev_lm,
       /* Extract this shared object's name.  */
       gdb::unique_xmalloc_ptr<char> buffer
 	= target_read_string (li->l_name, SO_NAME_MAX_PATH_SIZE - 1);
+
       if (buffer == nullptr)
 	{
 	  /* If this entry's l_name address matches that of the
@@ -1382,12 +1402,19 @@ svr4_current_sos_direct (struct svr4_info *info)
       return;
     }
 
+#ifdef __QNXTARGET__
+  so_list *qnx_list = nto_solist_from_qnx_linkmap_note ();
+  if (qnx_list != nullptr)
+    info->solib_lists[0] = qnx_list;
+#endif
+
   /* If we can't find the dynamic linker's base structure, this
      must not be a dynamically linked executable.  Hmm.  */
   info->debug_base = elf_locate_base ();
   if (info->debug_base == 0)
     return;
 
+#ifndef __QNXTARGET__
   /* Assume that everything is a library if the dynamic loader was loaded
      late by a static executable.  */
   if (current_program_space->exec_bfd ()
@@ -1395,6 +1422,7 @@ svr4_current_sos_direct (struct svr4_info *info)
 				  ".dynamic") == NULL)
     ignore_first = false;
   else
+#endif
     ignore_first = true;
 
   auto cleanup = make_scope_exit ([info] ()
@@ -1418,6 +1446,9 @@ svr4_current_sos_direct (struct svr4_info *info)
 	}
     }
 
+  /* On QNX this will re-add the entries just filtered out by the
+   * ignore_first above.  */
+#ifndef __QNXTARGET__
   /* On Solaris, the dynamic linker is not in the normal list of
      shared objects, so make sure we pick it up too.  Having
      symbol information for the dynamic linker is quite crucial
@@ -1438,6 +1469,7 @@ svr4_current_sos_direct (struct svr4_info *info)
 	  svr4_read_so_list (info, debug_base, 0, &sos, 0);
 	}
     }
+#endif
 
   cleanup.release ();
 }
@@ -2438,13 +2470,17 @@ enable_break (struct svr4_info *info, int from_tty)
 	 mechanism to find the dynamic linker's base address.  */
 
       gdb_bfd_ref_ptr tmp_bfd;
+#if !defined(NVIDIA_CUDA_GDB)
       try
 	{
+#endif
 	  tmp_bfd = solib_bfd_open (interp_name);
+#if !defined(NVIDIA_CUDA_GDB)
 	}
       catch (const gdb_exception &ex)
 	{
 	}
+#endif
 
       if (tmp_bfd == NULL)
 	goto bkpt_at_symbol;
@@ -3034,6 +3070,34 @@ svr4_exec_displacement (CORE_ADDR *displacementp)
 			continue;
 		    }
 
+#if defined(__QNXTARGET__)
+		  /* binaries stripped by mkifs set p_paddr for historic reasons although it is
+		   * currently ignored by the system. Also the changed header mapping tweaks
+		   * the p_filesz values so ignore both for the final test.  */
+		  CORE_ADDR p_paddr_buf1, p_paddr_buf2, p_filesz_buf1, p_filesz_buf2;
+		  p_paddr_buf1  = extract_unsigned_integer (phdrp->p_paddr, 8, byte_order);
+		  p_paddr_buf2  = extract_unsigned_integer (phdr2p->p_paddr, 8, byte_order);
+		  p_filesz_buf1 = extract_unsigned_integer (phdrp->p_filesz, 8, byte_order);
+		  p_filesz_buf2 = extract_unsigned_integer (phdr2p->p_filesz, 8, byte_order);
+		  /* the values in the binary need to be larger than the original values
+		   * as the p_addr is increased by at least the image offset and the filesz
+		   * cannot shrink when wrapped in a larger segment
+		   * Unchanged values are already tested above.  */
+		  if((p_paddr_buf1 >= p_paddr_buf2) && (p_filesz_buf1 >= p_filesz_buf2))
+		    {
+		      Elf64_External_Phdr tmp_phdr = *phdrp;
+		      Elf64_External_Phdr tmp_phdr2 = *phdr2p;
+
+		      memset (tmp_phdr.p_paddr, 0, 8);
+		      memset (tmp_phdr.p_filesz, 0, 8);
+		      memset (tmp_phdr2.p_paddr, 0, 8);
+		      memset (tmp_phdr2.p_filesz, 0, 8);
+
+		      if (memcmp (&tmp_phdr, &tmp_phdr2, sizeof (tmp_phdr))
+			  == 0)
+			continue;
+		    }
+#endif
 		  return 0;
 		}
 	    }

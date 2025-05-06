@@ -19,6 +19,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 #include "block.h"
 #include "symtab.h"
@@ -33,6 +38,11 @@
 #include "gdbsupport/underlying.h"
 #include "gdbarch.h"
 #include "objfiles.h"
+#ifdef NVIDIA_CUDA_GDB
+#include "cuda/cuda-utils.h"
+#include "cuda/cuda-tdep.h"
+#include "complaints.h"
+#endif
 
 /* This holds gdbarch-specific types used by the DWARF expression
    evaluator.  See comments in execute_stack_op.  */
@@ -968,6 +978,46 @@ dwarf_expr_context::fetch_result (struct type *type, struct type *subobj_type,
 
 	    gdb_assert (this->m_frame != NULL);
 
+#ifdef NVIDIA_CUDA_GDB
+	    /* CUDA: If the PC has advanced past the live range of a register,
+	     * converting the dwarf2 regnum to gdb regnum above will result in
+	     * invalid_lo_regnum. Instead of reporting <unavailable> we should
+	     * check the ptx register cache to see if we have a previous value
+	     * saved for this dwarf2 regnum. If that fails, we check to see if
+	     * we can extrapolate the register value by extending the live range
+	     * of the ptx virtual registers to the end of the function. This isn't
+	     * always accurate but it gives the user a chance to see what the value 
+	     * was. */
+	    /* FIXME: We could instead return a special tagged identifier as a gdb_regnum
+	     * when we need this logic and let the normal value_from_register path handle
+	     * it. We would need to define our own gdbarch_pseudo_register_read_value. */
+	    bool is_extrapolated = false;
+	    if (cuda_is_cuda_gdbarch (f_arch) &&
+		!cuda_is_regnum_valid (f_arch, gdb_regnum))
+	      {
+		/* First check for a previous value that was cached. This is more accurate as we
+		 * know that the cached value was accurate at the time it was read. */
+		retval = cuda_ptx_cache_get_register (this->m_frame, dwarf_regnum, subobj_type);
+		/* If the value is not optimized out, break out to avoid reporting <unavailable>. */
+		if (!retval->optimized_out ())
+		  break;
+		/* Try to extrapolate the register number as a last resort. This can be inaccurate. */
+		gdb_regnum = cuda_reg_to_regnum_extrapolated (f_arch, dwarf_regnum);
+		if (cuda_is_regnum_valid (f_arch, gdb_regnum))
+		  is_extrapolated = true;
+		else
+		  {
+		    // gdb_regnum is still invalid, complain and return optimized out indication
+		    complaint ("Unknown DWARF CUDA register 0x%08x", dwarf_regnum);
+
+		    value *tmp = value::allocate (subobj_type);
+		    retval->contents_copy (tmp, 0, 0,
+					   subobj_type->length ());
+		    retval = tmp;
+		    break;
+		  }
+	      }
+#endif
 	    retval = value_from_register (subobj_type, gdb_regnum,
 					  this->m_frame);
 	    if (retval->optimized_out ())
@@ -983,6 +1033,15 @@ dwarf_expr_context::fetch_result (struct type *type, struct type *subobj_type,
 				       subobj_type->length ());
 		retval = tmp;
 	      }
+#ifdef NVIDIA_CUDA_GDB
+	    /* If we extrapolated the register, we need to inform the user it might not be accurate. */
+	    if (is_extrapolated)
+	      retval->set_extrapolated (true);
+	    /* Try to store this value in the ptx register cache */
+	    if (cuda_is_cuda_gdbarch (f_arch) &&
+		cuda_is_regnum_valid (f_arch, gdb_regnum))
+	      cuda_ptx_cache_store_register (this->m_frame, dwarf_regnum, retval);
+#endif
 	  }
 	  break;
 
@@ -1700,6 +1759,28 @@ dwarf_expr_context::execute_stack_op (const gdb_byte *op_ptr,
 	  op_ptr = safe_read_uleb128 (op_ptr, op_end, &reg);
 	  dwarf_expr_require_composition (op_ptr, op_end, "DW_OP_regx");
 
+#ifdef NVIDIA_CUDA_GDB
+	  /* CUDA: PTX virtual registers are encoded as strings (e.g. "\04r%")
+	   * which will overflow an int. To work around this, we create an
+	   * internal cache of dwarf2 regnum and obtain the offset of the
+	   * string or'ed with CUDA_PTX_VIRTUAL_TAG to be out-of-range of a
+	   * normal register set size on cuda architectures.
+	   */
+	  if (cuda_is_cuda_gdbarch (arch) && reg > 0xff)
+	    {
+	      /* Check if this is a ptx virtual register string and convert
+	       * to identifier via cuda-tdep. */
+	      uint64_t new_reg
+		  = cuda_check_dwarf2_reg_ptx_virtual_register (reg);
+	      /* Also check if this is an ascii encoded register string and
+		 convert to identifier. Only do this if we didn't detect a ptx
+		 virtual register string. */
+	      if (new_reg == reg)
+		new_reg
+		    = cuda_check_dwarf2_reg_ascii_encoded_register (arch, reg);
+	      reg = new_reg;
+	    }
+#endif
 	  result = reg;
 	  result_val = value_from_ulongest (address_type, result);
 	  this->m_location = DWARF_VALUE_REGISTER;
@@ -1794,6 +1875,28 @@ dwarf_expr_context::execute_stack_op (const gdb_byte *op_ptr,
 	case DW_OP_bregx:
 	  {
 	    op_ptr = safe_read_uleb128 (op_ptr, op_end, &reg);
+#ifdef NVIDIA_CUDA_GDB
+	    /* CUDA: PTX virtual registers are encoded as strings (e.g.
+	     * "\04r%") which will overflow an int. To work around this, we
+	     * create an internal cache of dwarf2 regnum and obtain the offset
+	     * of the string or'ed with CUDA_PTX_VIRTUAL_TAG to be out-of-range
+	     * of a normal register set size on cuda architectures.
+	     */
+	    if (cuda_is_cuda_gdbarch (arch) && reg > 0xff)
+	      {
+		/* Check if this is a ptx virtual register string and convert
+		 * to identifier via cuda-tdep. */
+		uint64_t new_reg
+		    = cuda_check_dwarf2_reg_ptx_virtual_register (reg);
+		/* Also check if this is an ascii encoded register string and
+		   convert to identifier. Only do this if we didn't detect a
+		   ptx virtual register string. */
+		if (new_reg == reg)
+		  new_reg = cuda_check_dwarf2_reg_ascii_encoded_register (arch,
+									  reg);
+		reg = new_reg;
+	      }
+#endif
 	    op_ptr = safe_read_sleb128 (op_ptr, op_end, &offset);
 	    ensure_have_frame (this->m_frame, "DW_OP_bregx");
 

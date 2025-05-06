@@ -17,6 +17,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #if !defined (VALUE_H)
 #define VALUE_H 1
 
@@ -138,6 +143,10 @@ private:
       m_stack (false),
       m_is_zero (false),
       m_in_history (false),
+#ifdef NVIDIA_CUDA_GDB
+      m_cached (false),
+      m_extrapolated (false),
+#endif
       m_type (type_),
       m_enclosing_type (type_)
   {
@@ -611,6 +620,18 @@ public:
   /* Record this value on the value history, and return its location
      in the history.  The value is removed from the value chain.  */
   int record_latest ();
+#ifdef NVIDIA_CUDA_GDB
+  /* CUDA - register cache */
+  bool cached () const
+  { return m_cached; }
+  void set_cached (bool val)
+  { m_cached = val; }
+  /* CUDA - regmap extrapolation */
+  bool extrapolated () const
+  { return m_extrapolated; }
+  void set_extrapolated (bool val)
+  { m_extrapolated = val; }
+#endif
 
 private:
 
@@ -650,6 +671,15 @@ private:
 
   /* True if this a value recorded in value history; false otherwise.  */
   bool m_in_history : 1;
+#ifdef NVIDIA_CUDA_GDB
+  /* CUDA - register cache */
+  /* True if this value was recovered from CUDA PTX cache */
+  bool m_cached : 1; 
+  /* CUDA - regmap extrapolation */
+  /* True if this value has been extrapolated */
+  bool m_extrapolated : 1; 
+#endif
+
 
   /* Location of value (if lval).  */
   union

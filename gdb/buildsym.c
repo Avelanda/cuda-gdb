@@ -16,6 +16,11 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+/* NVIDIA CUDA Debugger CUDA-GDB
+   Copyright (C) 2007-2025 NVIDIA Corporation
+   Modified from the original GDB file referenced above by the CUDA-GDB
+   team at NVIDIA <cudatools@nvidia.com>. */
+
 #include "defs.h"
 #include "buildsym-legacy.h"
 #include "bfd.h"
@@ -35,6 +40,11 @@
 #include "dictionary.h"
 #include <algorithm>
 
+#ifdef NVIDIA_CUDA_GDB
+#include "cuda/cuda-tdep.h"
+#include "source.h"
+static int buildsym_line_debug = 0;
+#endif
 /* For cleanup_undefined_stabs_types and finish_global_stabs (somewhat
    questionable--see comment where we call them).  */
 
@@ -622,9 +632,24 @@ buildsym_compunit::pop_subfile ()
 /* Add a linetable entry for line number LINE and address PC to the
    line vector for SUBFILE.  */
 
+#ifdef NVIDIA_CUDA_GDB
+/* FIXME */
+void 
+buildsym_compunit::record_line (struct subfile *subfile, int line, 
+				unrelocated_addr pc, linetable_entry_flags flags) 
+{
+  record_line (subfile, line, pc, flags, NULL, NULL, 0);
+}
+void
+buildsym_compunit::record_line (struct subfile *subfile, int line,
+				unrelocated_addr pc, linetable_entry_flags flags,
+				const char *inline_function,
+				const char *context_filename, int context_line)
+#else
 void
 buildsym_compunit::record_line (struct subfile *subfile, int line,
 				unrelocated_addr pc, linetable_entry_flags flags)
+#endif
 {
   m_have_line_numbers = true;
 
@@ -653,6 +678,13 @@ buildsym_compunit::record_line (struct subfile *subfile, int line,
 	  if (last->unrelocated_pc () != pc)
 	    break;
 
+#ifdef NVIDIA_CUDA_GDB
+	  if (buildsym_line_debug)
+	    gdb_printf (gdb_stdlog, "Discarding line entry for PC 0x%lx at line %d\n",
+				(long unsigned int)last->unrelocated_pc (), last->line);
+	  xfree (last->inline_info);
+	  last->inline_info = NULL;
+#endif
 	  subfile->line_vector_entries.pop_back ();
 	}
 
@@ -667,6 +699,31 @@ buildsym_compunit::record_line (struct subfile *subfile, int line,
   e.is_stmt = (flags & LEF_IS_STMT) != 0;
   e.set_unrelocated_pc (pc);
   e.prologue_end = (flags & LEF_PROLOGUE_END) != 0;
+#ifdef NVIDIA_CUDA_GDB
+  e.inline_info = nullptr;
+  if (context_line)
+    {
+      struct cuda_debug_inline_info *inline_info =
+	(struct cuda_debug_inline_info *)
+	xmalloc (sizeof (struct cuda_debug_inline_info));
+      inline_info->line = context_line;
+      inline_info->filename = lbasename (context_filename);
+      inline_info->function = inline_function;
+      e.inline_info = inline_info;
+    }
+  if (buildsym_line_debug)
+    {
+      if (e.inline_info)
+	gdb_printf (gdb_stdlog, "Lineinfo PC 0x%lx at line %d inlined at %s:%d by %s\n",
+			    (long unsigned int)e.unrelocated_pc (), e.line,
+			    e.inline_info->filename,
+			    e.inline_info->line,
+			    e.inline_info->function);
+      else
+	gdb_printf (gdb_stdlog, "Lineinfo PC 0x%lx at line %d\n",
+			    (long unsigned int)e.unrelocated_pc (), e.line);
+    }
+#endif
 }
 
 

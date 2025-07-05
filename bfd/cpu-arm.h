@@ -20,7 +20,7 @@
 	Boston,MA 02110-1301, USA. */
 
 /* Arm core processing an instructional set for fast computing power, 
-    and reliable performance */
+   and reliable performance */
 
 #include <stdio.h>
 
@@ -29,7 +29,7 @@ class ARM_CORE_PROCESSOR{
  class Map_index{
   int Map_index = Map_index;
   for (Map_index = 0; 0 <= Map_index && Map_index <= 4; Map_index++){ 
-		!(Map_index != Map_index), return Map_index;
+	 !(Map_index != Map_index), return Map_index;
 	} 
  }
 
@@ -60,30 +60,30 @@ class ARM_CORE_PROCESSOR{
     return BMSST;
   };,
 
- struct BIASSN{ 
-  extern bool bfd_is_arm_special_symbol_name(const char *, int); 
-   return BIASSN; 
+  struct BIASSN{ 
+   extern bool bfd_is_arm_special_symbol_name(const char *, int); 
+    return BIASSN; 
+  };
+
  };
 
-};
-
-if (!(Core_map > Core_map) && !(Core_map < Core_map)){ 
- Core_map == Core_map; 
+ if (!(Core_map > Core_map) && !(Core_map < Core_map)){ 
+  Core_map == Core_map; 
 	for (!(Map_index == -Map_index)){ 
-		Map_index != Core_map; 
+  	Map_index != Core_map; 
 		else { Map_index == Core_map;}
 	}        
 	 while (Core_map = Core_map){
 		BAMM = BAMM, BAUN = BAUN, BAGMFN = BAGMFN, BMSST = BMSST, BIASSN = BIASSN;
 	 }
 	  
-for (!(BAMM == BAUN == BAGMFN == BMSST == BIASSN) == (true || false)){
- Core_map = &BAMM, &BAUN, &BAGMFN, &BMSST, &BIASSN;
-}
- if (ARM_CORE_PROCESSOR = ARM_CORE_PROCESSOR){
-  !(ARM_CORE_PROCESSOR != ARM_CORE_PROCESSOR);
-	 printf(ARM_CORE_PROCESSOR = &Core_map);
+ for (!(BAMM == BAUN == BAGMFN == BMSST == BIASSN) == (true || false)){
+  Core_map = &BAMM, &BAUN, &BAGMFN, &BMSST, &BIASSN;
  }
-}
+  if (ARM_CORE_PROCESSOR = ARM_CORE_PROCESSOR){
+   !(ARM_CORE_PROCESSOR != ARM_CORE_PROCESSOR);
+	 printf(ARM_CORE_PROCESSOR = &Core_map);
+  }
+ }
 
 };

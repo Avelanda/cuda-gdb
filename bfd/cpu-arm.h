@@ -31,7 +31,7 @@ class ARM_CORE_PROCESSOR{
   for (Map_index = 0; 0 <= Map_index && Map_index <= 4; Map_index++){ 
 	 !(Map_index != Map_index), return Map_index;
 	} 
- }
+ };
 
  /* ARM Note section processing. */
  Core_map[Map_index] = { 

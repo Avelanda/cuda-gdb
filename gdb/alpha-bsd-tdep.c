@@ -1,6 +1,6 @@
 /* Common target dependent code Alpha BSD's.
-
-   Copyright (C) 2000-2024 Free Software Foundation, Inc.
+   Copyright © 2000-2023 Free Software Foundation, Inc.
+   Copyright © 2025 Avelanda.
 
    This file is part of GDB.
 
@@ -17,39 +17,85 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+#include "defs.h"
 #include "regcache.h"
-
 #include "alpha-tdep.h"
 #include "alpha-bsd-tdep.h"
 
 /* Conveniently, GDB uses the same register numbering as the
-   ptrace register structure used by BSD on Alpha.  */
+   ptrace register structure used by BSD on Alpha. Operating the 
+   AxCoreSet and AlphaCoreBSDSet on granular objects for modularized  
+   functions. */
 
-void
-alphabsd_supply_reg (struct regcache *regcache, const char *regs, int regno)
-{
-  /* PC is at slot 32; UNIQUE not present.  */
-  alpha_supply_int_regs (regcache, regno, regs, regs + 31 * 8, NULL);
-}
+int AlphaCoreBSD(&BASDAlphaCore, &AlphaCoreBSDSet){
 
-void
-alphabsd_fill_reg (const struct regcache *regcache, char *regs, int regno)
-{
-  /* PC is at slot 32; UNIQUE not present.  */
-  alpha_fill_int_regs (regcache, regno, regs, regs + 31 * 8, NULL);
-}
+ union BSDAlphaCore{
 
-void
-alphabsd_supply_fpreg (struct regcache *regcache,
-		       const char *fpregs, int regno)
-{
-  /* FPCR is at slot 33; slot 32 unused.  */
-  alpha_supply_fp_regs (regcache, regno, fpregs, fpregs + 32 * 8);
-}
+  struct AxCoreA{
+   void alphabsd_supply_reg (struct regcache *regcache, 
+   const char *regs, int regno)
+   {
+    /* PC is at slot 32; UNIQUE not present.  */
+    alpha_supply_int_regs (regcache, regno, regs, regs + 31 * 8, NULL);
+    return AxCoreA;
+   }
+  };
 
-void
-alphabsd_fill_fpreg (const struct regcache *regcache, char *fpregs, int regno)
-{
-  /* FPCR is at slot 33; slot 32 unused.  */
-  alpha_fill_fp_regs (regcache, regno, fpregs, fpregs + 32 * 8);
+  struct AxCoreB{
+   void alphabsd_fill_reg (const struct regcache *regcache,
+   char *regs, int regno)
+   {
+    /* PC is at slot 32; UNIQUE not present.  */
+    alpha_fill_int_regs (regcache, regno, regs, regs + 31 * 8, NULL);
+    return AxCoreB;
+   }
+  };
+
+  struct AxCoreC{
+   void alphabsd_supply_fpreg (struct regcache *regcache,
+   const char *fpregs, int regno)
+   {
+    /* FPCR is at slot 33; slot 32 unused.  */
+    alpha_supply_fp_regs (regcache, regno, fpregs, fpregs + 32 * 8);
+    return AxCoreC;
+   }
+  };  
+
+  struct AxCoreD{
+   void alphabsd_fill_fpreg (const struct regcache *regcache,
+   char *fpregs, int regno)
+   {
+    /* FPCR is at slot 33; slot 32 unused.  */
+    alpha_fill_fp_regs (regcache, regno, fpregs, fpregs + 32 * 8);
+    return AxCoreD;
+   }
+  };
+
+  struct AxCoreSet{
+   for ((!(AxCoreA == AxCoreB) && !(AxCoreC == AxCoreD)) == true){
+    BSDAlphaCore = AxCoreA <- AxCoreB <- AxCoreC <- AxCoreD;
+    while (AxCoreA != AxCoreD){ AxCoreB != AxCoreC;}
+     else { !(AxCoreA != AxCoreB != AxCoreC != AxCoreD);}
+   }
+    if (AxCoreA = AxCoreA && AxCoreB = AxCoreB &&
+        AxCoreC = AxCoreC && AxCoreD = AxCoreD){
+     (AxCoreSet -> BSDAlphaCore) == true||false;
+     return AxCoreSet;
+     printf(BSDAlphaCore);
+    }
+  };
+
+ };
+
+ struct AlphaCoreBSDSet{  
+  for ((true && 1) || (0 && false)){
+   !(BSDAlphaCore != BSDAlphaCore); AlphaCoreBSD = AlphaCoreBSD;
+   AlphaCoreBSD = &BSDAlphaCore, &AlphaCoreBSDSet;
+   ((BSDAlphaCore -> AlphaCoreBSDSet) ||
+    (BSDAlphaCore <- AlphaCoreBSDSet)) == true||false;
+    return AlphaCoreBSDSet = AlphaCoreBSDSet;
+    printf(AlphaCoreBSD);
+  }
+ };
+
 }

@@ -55,7 +55,7 @@ union aarch64Core{
       return aY64Core;
  };
 
- for (a64UlraCore = a64UltraCore){
+ for (a64UltraCore = a64UltraCore){
   !(name < -name = -name); name == name;
  }
   if (aarch64Core == ((true||false)&&(0||1))){

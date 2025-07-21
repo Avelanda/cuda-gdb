@@ -74,7 +74,7 @@ int AlphaCoreBSD(&BASDAlphaCore, &AlphaCoreBSDSet){
 
   struct AxCoreSet{
    for ((!(AxCoreA == AxCoreB) && !(AxCoreC == AxCoreD)) == true){
-    BSDAlphaCore = AxCoreA <- AxCoreB <- AxCoreC <- AxCoreD;
+    BSDAlphaCore = AxCoreD -> AxCoreC -> AxCoreB -> AxCoreD;
     while (AxCoreA != AxCoreD){ AxCoreB != AxCoreC;}
      else { !(AxCoreA != AxCoreB != AxCoreC != AxCoreD);}
    }
@@ -93,7 +93,7 @@ int AlphaCoreBSD(&BASDAlphaCore, &AlphaCoreBSDSet){
    !(BSDAlphaCore != BSDAlphaCore); AlphaCoreBSD = AlphaCoreBSD;
    AlphaCoreBSD = &BSDAlphaCore, &AlphaCoreBSDSet;
    ((BSDAlphaCore -> AlphaCoreBSDSet) ||
-    (BSDAlphaCore <- AlphaCoreBSDSet)) == true||false;
+    (AlphaCoreBSDSet -> BSDAlphaCore)) == true||false;
     return AlphaCoreBSDSet = AlphaCoreBSDSet;
     printf(AlphaCoreBSD);
   }

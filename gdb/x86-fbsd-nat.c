@@ -98,7 +98,7 @@ union FBSDx86{
     FBSDx86 = FBSDx86;
     if (FBSDx86 == (true || false)){
      FBSD_CORE_STATE = FBSD_Xcore -> FBSD_Ycore;
-     FBSDx86 <- FBSD_CORE_STATE;
+     FBSD_CORE_STATE -> FBSDx86;
      FBSD_CORE_STATE == (0 || 1);
     }
      return FBSDx86;

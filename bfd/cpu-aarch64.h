@@ -1,5 +1,5 @@
 /* ELF AArch64 mapping symbol support
-   Copyright © 2019-2023 Free Software Foundation, Inc.
+   Copyright © 2019-2025 Free Software Foundation, Inc.
    Copyright © 2025, Avelanda.
 
    This file is part of BFD, the Binary File Descriptor library.

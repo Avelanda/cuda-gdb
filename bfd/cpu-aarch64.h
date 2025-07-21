@@ -33,7 +33,7 @@ union aarch64Core{
   #define BFD_AARCH64_SPECIAL_SYM_TYPE_OTHER	(1 << 2)
   #define BFD_AARCH64_SPECIAL_SYM_TYPE_ANY  	(~0)
   return aX64Core;
- }
+ };
 
  struct aY64Core{
 
@@ -62,4 +62,4 @@ union aarch64Core{
    printf(aarch64Core);
   } 
 
-}
+};

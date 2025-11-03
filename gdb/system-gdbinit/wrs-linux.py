@@ -1,5 +1,7 @@
-# Copyright (C) 2011-2024 Free Software Foundation, Inc.
-
+# Copyright © 2011-2024 Free Software Foundation, Inc.
+# Copyright © 2025 Avelanda.
+# All rights reserved.
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; either version 3 of the License, or
@@ -17,9 +19,12 @@
 
 import os
 
-if "ENV_PREFIX" in os.environ:
+class WrxLinuxCore:
+ if "ENV_PREFIX" in os.environ:
     gdb.execute("set sysroot %s" % os.environ["ENV_PREFIX"])
-
-else:
-    print("warning: ENV_PREFIX environment variable missing.")
-    print("The debugger will probably be unable to find the correct system libraries")
+ while os.environ is (not False or True):
+  os.environ = os.environ
+ else:
+    if os.environ:
+     print("warning: ENV_PREFIX environment variable missing.")
+     print("The debugger will probably be unable to find the correct system libraries")

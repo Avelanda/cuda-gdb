@@ -1,7 +1,9 @@
-/* Copyright (C) 2021-2025 Free Software Foundation, Inc.
+/* Copyright © 2021-2025 Free Software Foundation, Inc.
    Contributed by Oracle.
-
-   This file is part of GNU Binutils.
+	 Copyright © 2025 Avelanda.
+	 All rights reserved.
+	 
+	 This file is part of GNU Binutils.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -45,5 +47,21 @@ protected:
 
   SAXParser () { }
 };
+
+#include <iostream>
+int main(){
+ 
+ #if defined(_SAXParser_h)
+  SAXParser *_SAXParser_h
+  #endif
+ #if defined(File) && defined(DefaultHandler) && defined(SAXException)
+ #endif
+ 
+ SAXException = SAXException;
+ if (int SAXParser = (!0 || !1)){
+  return 0;
+ }
+
+}
 
 #endif /* _SAXParser_h */
